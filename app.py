@@ -1,5 +1,7 @@
+# app.py
+
 import streamlit as st
-from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled, NoTranscriptFound
+from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled, NoTranscriptFound, CouldNotRetrieveTranscript
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain_community.vectorstores import FAISS
@@ -15,6 +17,12 @@ load_dotenv()
 
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+
+# Setup proxy for youtube_transcript_api
+YouTubeTranscriptApi._TranscriptApi__session.proxies = {
+    "http": "http://159.89.132.167:8080",   # Free proxy (may change or stop working)
+    "https": "http://159.89.132.167:8080"
+}
 
 embedding = OpenAIEmbeddings(model='text-embedding-3-small', api_key=OPENAI_API_KEY)
 llm = ChatOpenAI(model='gpt-4o-mini', temperature=0.2, api_key=OPENAI_API_KEY)
@@ -67,12 +75,6 @@ def search_youtube(query, max_results=5):
         return []
 
 def get_transcript(video_id, lang_code='en'):
-    # Optional: Use a proxy to avoid IP bans in cloud environments (comment out if unnecessary)
-    # YouTubeTranscriptApi._TranscriptApi__session.proxies = {
-    #     'http': 'http://your.proxy.server:port',
-    #     'https': 'http://your.proxy.server:port'
-    # }
-
     try:
         transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=[lang_code])
         return transcript, None
@@ -85,9 +87,9 @@ def get_transcript(video_id, lang_code='en'):
             return None, languages
         except:
             return None, "Transcript not found or video may not exist."
+    except CouldNotRetrieveTranscript as e:
+        return None, "YouTube is blocking the request. Try a different video or use a proxy."
     except Exception as e:
-        if "429" in str(e) or "blocked" in str(e).lower():
-            return None, "YouTube is blocking the request. Try using a proxy or run locally."
         return None, str(e)
 
 def create_final_relevant_doc(relevant_documents):
@@ -121,7 +123,7 @@ if query:
                     st.session_state["selected_language"] = 'en'
                     st.session_state.pop("cached_transcript", None)
                     st.session_state.pop("cached_vector_store", None)
-                    st.rerun()
+                    st.experimental_rerun()
     else:
         st.warning("No videos found! Try a different search term.")
 
@@ -149,6 +151,7 @@ if "selected_video_id" in st.session_state:
 
             splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
             chunks = splitter.create_documents([final_content])
+
             vector_store = FAISS.from_documents(chunks, embedding)
             st.session_state["cached_vector_store"] = vector_store
 
@@ -158,7 +161,7 @@ if "selected_video_id" in st.session_state:
             auto_lang = error[0]
             st.warning(f"No English transcript found. Using available language: {auto_lang}")
             st.session_state["selected_language"] = auto_lang
-            st.rerun()
+            st.experimental_rerun()
         else:
             st.error(f"Transcript Error: {error}")
 
@@ -180,11 +183,10 @@ if "selected_video_id" in st.session_state:
 
             with st.spinner("Thinking..."):
                 response = main_chain.invoke(question)
-
             st.write("### Answer:")
             st.write(response)
 
 if "selected_video_id" in st.session_state:
     if st.button("🔄 New Search"):
         st.session_state.clear()
-        st.rerun()
+        st.experimental_rerun()
