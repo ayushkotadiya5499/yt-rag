@@ -1,7 +1,6 @@
-# app.py
-
 import streamlit as st
 from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled, NoTranscriptFound, CouldNotRetrieveTranscript
+from youtube_transcript_api._api import TranscriptFetcher
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain_community.vectorstores import FAISS
@@ -14,16 +13,10 @@ import requests
 
 # Load environment variables
 load_dotenv()
-
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-# Setup proxy for youtube_transcript_api
-YouTubeTranscriptApi._TranscriptApi__session.proxies = {
-    "http": "http://159.89.132.167:8080",   # Free proxy (may change or stop working)
-    "https": "http://159.89.132.167:8080"
-}
-
+# Langchain setup
 embedding = OpenAIEmbeddings(model='text-embedding-3-small', api_key=OPENAI_API_KEY)
 llm = ChatOpenAI(model='gpt-4o-mini', temperature=0.2, api_key=OPENAI_API_KEY)
 
@@ -75,8 +68,11 @@ def search_youtube(query, max_results=5):
         return []
 
 def get_transcript(video_id, lang_code='en'):
+    # Use custom fetcher with proxy
+    proxy = "http://159.89.132.167:8080"  # Free proxy (replace if needed)
+    fetcher = TranscriptFetcher(proxies={"http": proxy, "https": proxy})
     try:
-        transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=[lang_code])
+        transcript = fetcher._TranscriptFetcher__request_transcript(video_id, languages=[lang_code])
         return transcript, None
     except TranscriptsDisabled:
         return None, "Transcripts are disabled for this video."
@@ -87,8 +83,8 @@ def get_transcript(video_id, lang_code='en'):
             return None, languages
         except:
             return None, "Transcript not found or video may not exist."
-    except CouldNotRetrieveTranscript as e:
-        return None, "YouTube is blocking the request. Try a different video or use a proxy."
+    except CouldNotRetrieveTranscript:
+        return None, "YouTube is blocking the request. Try a different video or proxy."
     except Exception as e:
         return None, str(e)
 
