@@ -1,6 +1,6 @@
 import streamlit as st
 from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled, NoTranscriptFound, CouldNotRetrieveTranscript
-from youtube_transcript_api._api import TranscriptFetcher
+from youtube_transcript_api._errors import RequestFailed
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain_community.vectorstores import FAISS
@@ -11,12 +11,11 @@ from dotenv import load_dotenv
 import os
 import requests
 
-# Load environment variables
 load_dotenv()
+
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-# Langchain setup
 embedding = OpenAIEmbeddings(model='text-embedding-3-small', api_key=OPENAI_API_KEY)
 llm = ChatOpenAI(model='gpt-4o-mini', temperature=0.2, api_key=OPENAI_API_KEY)
 
@@ -68,11 +67,8 @@ def search_youtube(query, max_results=5):
         return []
 
 def get_transcript(video_id, lang_code='en'):
-    # Use custom fetcher with proxy
-    proxy = "http://159.89.132.167:8080"  # Free proxy (replace if needed)
-    fetcher = TranscriptFetcher(proxies={"http": proxy, "https": proxy})
     try:
-        transcript = fetcher._TranscriptFetcher__request_transcript(video_id, languages=[lang_code])
+        transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=[lang_code])
         return transcript, None
     except TranscriptsDisabled:
         return None, "Transcripts are disabled for this video."
@@ -83,15 +79,13 @@ def get_transcript(video_id, lang_code='en'):
             return None, languages
         except:
             return None, "Transcript not found or video may not exist."
-    except CouldNotRetrieveTranscript:
-        return None, "YouTube is blocking the request. Try a different video or proxy."
+    except (CouldNotRetrieveTranscript, RequestFailed):
+        return None, "YouTube is blocking the request. Try a different video."
     except Exception as e:
         return None, str(e)
 
 def create_final_relevant_doc(relevant_documents):
     return '\n\n'.join(i.page_content for i in relevant_documents)
-
-# --- Streamlit App ---
 
 st.set_page_config(page_title="🎬 YouTube RAG App", page_icon="🎬", layout="centered")
 st.title("🎬 YouTube RAG App")
